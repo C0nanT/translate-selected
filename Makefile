@@ -2,7 +2,7 @@
 
 # runs attached to the terminal: Ctrl+C or closing the terminal stops it
 start:
-	python3 -u pc/translator.py
+	TRANSLATOR_DEBUG=1 python3 -u pc/translator.py
 
 # unit tests (no GTK/network)
 test:

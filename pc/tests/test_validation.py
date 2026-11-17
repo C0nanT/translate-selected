@@ -26,8 +26,8 @@ class ValidationTest(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 urls = []
 
-                def fetch(url):
-                    urls.append(url)
+                def fetch(req):
+                    urls.append(req.url)
                     return response("ok")
 
                 times = case.get("times", 1)

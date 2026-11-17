@@ -1,0 +1,18 @@
+[
+  {"name": "one translation", "body": "{\"data\":{\"translations\":[{\"translatedText\":\"olá\"}]}}", "expected": {"type": "translation", "text": "olá"}},
+  {"name": "several translations are concatenated", "body": "{\"data\":{\"translations\":[{\"translatedText\":\"Olá. \"},{\"translatedText\":\"Mundo.\"}]}}", "expected": {"type": "translation", "text": "Olá. Mundo."}},
+  {"name": "empty text is valid", "body": "{\"data\":{\"translations\":[{\"translatedText\":\"um\"},{\"translatedText\":\"\"},{\"translatedText\":\"dois\"}]}}", "expected": {"type": "translation", "text": "umdois"}},
+  {"name": "JSON escapes", "body": "{\"data\":{\"translations\":[{\"translatedText\":\"a\\\"b\\n\\u00e9\\\\\"}]}}", "expected": {"type": "translation", "text": "a\"b\né\\"}},
+  {"name": "body is not JSON", "body": "<html>oops", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "empty body", "body": "", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "truncated JSON", "body": "{\"data\":", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "list instead of object", "body": "[]", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "missing data", "body": "{\"a\":1}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "data is not an object", "body": "{\"data\":[]}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "missing translations", "body": "{\"data\":{}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "empty translations", "body": "{\"data\":{\"translations\":[]}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "translation is not an object", "body": "{\"data\":{\"translations\":[\"x\"]}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "text missing", "body": "{\"data\":{\"translations\":[{}]}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "text is not a string", "body": "{\"data\":{\"translations\":[{\"translatedText\":5}]}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}},
+  {"name": "error object", "body": "{\"error\":{\"code\":403,\"message\":\"denied\"}}", "expected": {"type": "failure", "reason": "Resposta inesperada do Google Tradutor"}}
+]

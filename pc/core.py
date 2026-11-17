@@ -1,13 +1,15 @@
 """Core: pure rules, no GTK and no network."""
-import json
+import logging
 import re
-import urllib.parse
 from collections import namedtuple
+
+from providers import GoogleFree
+
+log = logging.getLogger("translator")
 
 MAX_CHARS = 3000
 # cap on the already-encoded URL; equal to MAX_URL in Limits.kt (conservative value, not measured)
 MAX_URL = 8000
-TARGET_LANGUAGE = "pt"
 
 
 # Copy of joinLines in android/core/src/main/kotlin/com/conan/translator/Translator.kt: keep both equal,
@@ -95,8 +97,8 @@ def clamp_position(pos, screen, window, centered_x):
     return Position(x, y)
 
 
-# --- translate: validation + URL + response, with the HTTP fetch coming from outside ---
-# Copy of Translator.kt (translate/translationUrl), checked by cases/validation.json.
+# --- translate: validation + provider request/response, with the HTTP fetch coming from outside ---
+# Copy of Translator.kt (translate), checked by cases/validation.json; providers live in providers.py.
 class _Marker:
     def __init__(self, name):
         self.name = name
@@ -122,7 +124,7 @@ class TooLarge(namedtuple("TooLarge", "n")):
 # kind: "timeout", "no_connection", "http" (+ code) or "other" (+ detail).
 class NetworkError(Exception):
     def __init__(self, kind, code=None, detail=None):
-        super().__init__(kind)
+        super().__init__(*(a for a in (kind, code, detail) if a is not None))
         self.kind = kind
         self.code = code
         self.detail = detail
@@ -154,13 +156,23 @@ class NetworkError(Exception):
         return self.detail
 
 
-def translation_url(text):
-    # Single encoding rule for q (makes Python and Java agree): RFC 3986. Only
-    # A-Z a-z 0-9 - . _ ~ stay raw; space becomes +; everything else becomes %XX in UTF-8.
-    # They diverged on ~ (Java: %7E) and * (Java: raw, Python: %2A); Kotlin is the one that adjusts.
-    q = urllib.parse.quote_plus(text, safe="", encoding="utf-8")
-    return ("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto"
-            f"&tl={TARGET_LANGUAGE}&dt=t&q={q}")
+def parse_env(text):
+    """Parses .env content: KEY=value lines, # comments, optional quotes and `export `."""
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        k, v = line.split("=", 1)
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        elif " #" in v:
+            v = v.split(" #", 1)[0].rstrip()
+        out[k.strip()] = v
+    return out
 
 
 def validate(text):
@@ -180,36 +192,27 @@ def _reason(e):
     return str(e) or type(e).__name__  # exception outside the contract: treated as "other"
 
 
-def _extract(body):
-    data = json.loads(body)
-    # lists only: str and dict also index in Python, but Kotlin (and the API) only accept lists
-    if not isinstance(data, list) or not isinstance(data[0], list):
-        raise ValueError("unexpected format")
-    out = []
-    for part in data[0]:
-        if not isinstance(part, list):
-            raise ValueError("invalid part")
-        p = part[0]
-        if p is not None and not isinstance(p, str):
-            raise ValueError("invalid part")
-        out.append(p or "")
-    return "".join(out)
-
-
-def translate(raw, fetch):
-    """fetch(url) -> body (str); raises an exception on network failure (NetworkError)."""
+def translate(raw, fetch, provider=GoogleFree()):
+    """fetch(request) -> body (str); raises an exception on network failure (NetworkError).
+    provider (see providers.py) builds the request and reads the response."""
     text = join_lines(raw)
     invalid = validate(text)
     if invalid is not None:
         return invalid
-    url = translation_url(text)
-    if len(url) > MAX_URL:
+    req = provider.request(text)
+    if len(req.url) > MAX_URL:
         return TooLarge(len(text))  # n is <= MAX_CHARS: counts characters, not the URL
     try:
-        body = fetch(url)
+        body = fetch(req)
     except Exception as e:
+        # never log req itself: it may carry the API key (URL or header)
+        log.error("fetch failed (%s, %d chars, url %d chars): %r",
+                  provider.name, len(text), len(req.url), e, exc_info=True)
+        if isinstance(e, NetworkError) and e.kind == "http" and e.code in provider.http_errors:
+            return Failure(provider.http_errors[e.code])
         return Failure(_reason(e))
     try:
-        return Translation(_extract(body))
+        return Translation(provider.parse(body))
     except Exception:
-        return Failure("Resposta inesperada do Google Tradutor")
+        log.error("unexpected response (%d bytes), body starts: %r", len(body), body[:500], exc_info=True)
+        return Failure(f"Resposta inesperada do {provider.name}")
